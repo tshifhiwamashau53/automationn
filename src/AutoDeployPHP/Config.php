@@ -3,8 +3,12 @@ namespace AutoDeployPHP;
 
 class Config
 {
+    /** @var array<string,mixed> */
     private array $config;
 
+    /**
+     * @param array<string,mixed> $config
+     */
     public function __construct(array $config)
     {
         $this->config = $config;
@@ -22,7 +26,14 @@ class Config
         return new self($data);
     }
 
-    public function get(string $key, $default = null)
+    /**
+     * Get a config value using dot notation.
+     *
+     * @param string $key
+     * @param mixed $default
+     * @return mixed
+     */
+    public function get(string $key, mixed $default = null): mixed
     {
         $parts = explode('.', $key);
         $value = $this->config;
@@ -35,6 +46,9 @@ class Config
         return $value;
     }
 
+    /**
+     * @return array<string,mixed>
+     */
     public function all(): array
     {
         return $this->config;
