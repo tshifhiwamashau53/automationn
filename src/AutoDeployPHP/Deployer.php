@@ -11,10 +11,19 @@ class Deployer
     public function __construct(Config $config)
     {
         $this->config = $config;
-        // Ensure we always have strings for the typed properties
-        $this->deployPath = rtrim((string)$this->config->get('deployment.deploy_to', __DIR__ . '/../../deploy'), '/');
-        $this->repository = (string)$this->config->get('deployment.repository', '');
-        $this->branch = (string)$this->config->get('deployment.branch', 'main');
+
+        // Retrieve values and guard their types to avoid casting mixed to string
+        $deployTo = $this->config->get('deployment.deploy_to');
+        if (!is_string($deployTo) || $deployTo === '') {
+            $deployTo = __DIR__ . '/../../deploy';
+        }
+        $this->deployPath = rtrim($deployTo, '/');
+
+        $repo = $this->config->get('deployment.repository');
+        $this->repository = is_string($repo) ? $repo : '';
+
+        $br = $this->config->get('deployment.branch');
+        $this->branch = is_string($br) && $br !== '' ? $br : 'main';
     }
 
     private function timestamp(): string
@@ -57,7 +66,10 @@ class Deployer
         // Run pre-deploy hooks
         $preHooks = (array)$this->config->get('pre_deploy_hooks', []);
         foreach ($preHooks as $hook) {
-            $hookPath = $releaseDir . '/' . ltrim((string)$hook, '/');
+            if (!is_string($hook) || $hook === '') {
+                continue;
+            }
+            $hookPath = $releaseDir . '/' . ltrim($hook, '/');
             if (file_exists($hookPath) && is_executable($hookPath)) {
                 $this->runCommand(escapeshellcmd($hookPath));
             }
@@ -75,7 +87,10 @@ class Deployer
         // Run post-deploy hooks from current
         $postHooks = (array)$this->config->get('post_deploy_hooks', []);
         foreach ($postHooks as $hook) {
-            $hookPath = $current . '/' . ltrim((string)$hook, '/');
+            if (!is_string($hook) || $hook === '') {
+                continue;
+            }
+            $hookPath = $current . '/' . ltrim($hook, '/');
             if (file_exists($hookPath) && is_executable($hookPath)) {
                 $this->runCommand(escapeshellcmd($hookPath));
             }
@@ -84,12 +99,14 @@ class Deployer
         // Health check
         $hc = (array)$this->config->get('health_check', []);
         $healthy = true;
-        if (!empty($hc['enabled']) && !empty($hc['url'])) {
+        if (!empty($hc['enabled']) && !empty($hc['url']) && is_string($hc['url'])) {
             $expected = $hc['expected_status'] ?? 200;
+            $timeout = (int)($hc['timeout'] ?? 10);
+            $urlArg = escapeshellarg($hc['url']);
             $cmd = sprintf(
                 'curl -s -o /dev/null -w "%%{http_code}" --max-time %d %s',
-                (int)($hc['timeout'] ?? 10),
-                escapeshellarg((string)$hc['url'])
+                $timeout,
+                $urlArg
             );
             $codeStr = trim($this->runCommand($cmd, false));
             $healthy = ((int)$codeStr === (int)$expected);
