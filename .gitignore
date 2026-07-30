@@ -1,0 +1,53 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Configuration
+config.php
+config.local.php
+
+# Dependencies
+vendor/
+node_modules/
+
+# Logs
+logs/
+*.log
+deploy/logs/*
+!deploy/logs/.gitkeep
+
+# Backups
+backups/
+*.backup
+*.zip
+
+# Releases
+releases/
+*.tar.gz
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.phpunit.result.cache
+clover.xml
+
+# Storage
+storage/
+.cache/
+
+# Sensitive
+*.key
+*.pem
+private/
+secrets/
+
+# OS
+Thumbs.db
+.DS_Store
