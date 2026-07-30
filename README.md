@@ -1,653 +1,493 @@
-# Auto Deploy PHP Git
+# Auto Deploy PHP — quick install and usage
 
-Automatically update your website when you push code to GitHub. No manual uploads needed.
+This guide walks through everything needed to install and run this automatic-deploy tool on a Linux server. Follow the exact commands and file contents below. After you finish each step, the app will:
 
-## What It Does
+- accept GitHub push webhooks at /webhook.php
+- clone the repository into a timestamped release directory
+- switch a `current` symlink to the new release
+- run optional pre/post scripts
+- run a health check and send a Slack/email-style notification (if configured)
+- support manual deploy, status and rollback commands
 
-When you push code to GitHub, this tool automatically:
-- Downloads your new code
-- Updates your website
-- Checks if everything works
-- Sends you a message saying it's done
+Requirements
+- A Linux server (Ubuntu/Debian recommended)
+- SSH access to the server
+- Git installed on the server
+- PHP 7.4 or newer (cli + curl + zip extensions)
+- Composer
+- (Optional) a Slack incoming webhook or email for notifications
 
-## What You Can Do With It
+Summary of steps
+1. Prepare server user and packages.
+2. Clone the repository and install PHP dependencies.
+3. Copy and edit configuration.
+4. Create required files (webhook endpoint, minimal PHP classes, CLI scripts).
+5. Make scripts executable and set permissions.
+6. Add the server Deploy Key to GitHub and create the webhook.
+7. Test webhook and do a manual deploy.
 
-- Push code to GitHub, website updates automatically
-- Get notified on Slack when your code goes live
-- Go back to an old version if something breaks
-- Run commands before and after updating
-- Check if your website is working after each update
-- Deploy different code to different servers
-- View a history of all your deployments
-
-## What You Need
-
-- PHP 7.4 or higher
-- Git installed on your computer and server
-- Composer (for installing libraries)
-- SSH access to your server (to upload files)
-- A GitHub account
-
-## Quick Start (5 Minutes)
-
+Quick install (copy & paste)
 ```bash
-# 1. Download
-git clone https://github.com/tshifhiwa021006/auto-deploy-PHP-Git.git
-cd auto-deploy-PHP-Git
-
-# 2. Install
-composer install
-
-# 3. Setup
-cp config.example.php config.php
-nano config.php  # Edit with YOUR settings
-
-# 4. Create webhook file
-mkdir -p public
-cat > public/webhook.php << 'EOF'
-<?php
-require_once __DIR__ . '/../vendor/autoload.php';
-use AutoDeployPHP\WebhookHandler;
-use AutoDeployPHP\Config;
-$config = Config::load(__DIR__ . '/../config.php');
-$handler = new WebhookHandler($config);
-echo $handler->handle();
-EOF
-
-# 5. Tell GitHub about it (see Step 5 below)
-```
-
-Done! Push code and watch it deploy automatically.
-
-## How to Set It Up (Detailed)
-
-### Step 1: Download the Tool
-
-```bash
-git clone https://github.com/tshifhiwa021006/auto-deploy-PHP-Git.git
-cd auto-deploy-PHP-Git
-```
-
-### Step 2: Install Libraries
-
-```bash
-composer install
-```
-
-This downloads all the code libraries this tool needs to work.
-
-### Step 3: Set Up Your Settings
-
-Copy the example settings file:
-
-```bash
-cp config.example.php config.php
-```
-
-Edit `config.php` with your information. Here's what each setting means:
-
-```php
-<?php
-return [
-    'deployment' => [
-        // Your GitHub repo URL (find this on GitHub)
-        'repository' => 'git@github.com:username/your-repo.git',
-        
-        // Which branch to deploy (main, master, develop, etc)
-        'branch' => 'main',
-        
-        // Where to upload on your server
-        'deploy_to' => '/var/www/html/app',
-        
-        // How many old versions to keep (in case you need to go back)
-        'keep_releases' => 5,
-    ],
-    
-    'github' => [
-        // This is a secret code - make it hard to guess (at least 32 characters)
-        'webhook_secret' => 'your-very-secret-key-here-make-it-long',
-        
-        // Get this from GitHub: Settings > Developer settings > Personal access tokens
-        'token' => 'github_pat_xxxxxxxxxxxxx',
-    ],
-    
-    'notifications' => [
-        // Get this from Slack: https://api.slack.com/apps (optional)
-        'slack_webhook' => 'https://hooks.slack.com/services/YOUR/WEBHOOK/URL',
-        
-        // Where to send email alerts
-        'email' => 'admin@example.com',
-    ],
-    
-    'pre_deploy_hooks' => [
-        // Commands to run BEFORE uploading (optional)
-        'scripts/before-deploy.sh',
-    ],
-    
-    'post_deploy_hooks' => [
-        // Commands to run AFTER uploading (optional)
-        'scripts/after-deploy.sh',
-    ],
-];
-```
-
-### Step 4: Create the Webhook File
-
-Create a new file at `public/webhook.php`:
-
-```php
-<?php
-require_once __DIR__ . '/../vendor/autoload.php';
-
-use AutoDeployPHP\WebhookHandler;
-use AutoDeployPHP\Config;
-
-$config = Config::load(__DIR__ . '/../config.php');
-$handler = new WebhookHandler($config);
-
-echo $handler->handle();
-```
-
-This file is what GitHub talks to. When you push code, GitHub sends a message to this file.
-
-### Step 5: Tell GitHub to Notify Your Server
-
-1. Go to your GitHub repository on github.com
-2. Click **Settings** (top right)
-3. Click **Webhooks** (left side menu)
-4. Click **Add webhook** (green button)
-5. Fill in the form:
-   - **Payload URL:** `https://your-website.com/webhook.php` (replace with YOUR domain)
-   - **Content type:** `application/json`
-   - **Secret:** Copy your secret from `config.php`
-   - **Which events:** Select `push` and `pull_request`
-6. Click **Add webhook** button
-
-Now GitHub will automatically tell your server every time you push code!
-
-## How to Use It
-
-### Automatic Deployment (Recommended)
-
-This is the easiest way. Just push your code normally:
-
-```bash
-git push origin main
-```
-
-Your website updates automatically in about 30 seconds. Check Slack or email for confirmation.
-
-### Manual Deployment
-
-If you want to deploy without pushing:
-
-```bash
-php bin/deploy.php --branch main --environment production
-```
-
-### Check Deployment Status
-
-See what version is running right now:
-
-```bash
-php bin/status.php
-```
-
-### Go Back to Previous Version
-
-If something breaks after deployment:
-
-```bash
-php bin/rollback.php
-```
-
-Done. Your old version is back online.
-
-### See Previous Deployments
-
-View the last 20 deployments:
-
-```bash
-php bin/history.php --limit 20
-```
-
-### Check If Website is Working
-
-Run automatic checks:
-
-```bash
-php bin/health-check.php
-```
-
-## Folder Structure
-
-Here's what each folder/file does:
-
-```
-auto-deploy-PHP-Git/
-├── bin/                    # Commands you can run
-│   ├── deploy.php          # Deploy manually
-│   ├── rollback.php        # Go back to old version
-│   ├── status.php          # Check current version
-│   ├── history.php         # See past deployments
-│   └── health-check.php    # Test if it works
-│
-├── src/                    # The actual tool code
-│   ├── WebhookHandler.php  # Listens for GitHub notifications
-│   ├── Deployer.php        # Does the uploading
-│   ├── Rollback.php        # Goes back to old version
-│   ├── Notification.php    # Sends Slack/email messages
-│   ├── Config.php          # Reads your settings
-│   └── Security.php        # Checks if it's really GitHub
-│
-├── public/                 # Web files (your server sees these)
-│   └── webhook.php         # GitHub sends messages here
-│
-├── scripts/                # Extra commands that run
-│   ├── before-deploy.sh    # Runs before uploading
-│   └── after-deploy.sh     # Runs after uploading
-│
-├── tests/                  # Tests to check if it works
-│   ├── Unit/               # Small tests
-│   └── Integration/        # Tests that work together
-│
-├── config.example.php      # Example settings (copy this)
-├── config.php              # YOUR settings (don't share!)
-├── composer.json           # List of libraries needed
-├── phpunit.xml             # Testing settings
-└── README.md               # This file
-```
-
-## What Happens When You Push Code
-
-Here's step-by-step what happens:
-
-```
-1. You type: git push
-   ↓
-2. GitHub receives your code
-   ↓
-3. GitHub sends a message to your server (webhook)
-   ↓
-4. Your server receives: "Hey, new code is here!"
-   ↓
-5. Server checks: "Is this really from GitHub?" (using secret)
-   ↓
-6. Server runs: scripts/before-deploy.sh (prep work)
-   ↓
-7. Server downloads the new code from GitHub
-   ↓
-8. Server creates a new folder with today's date (releases/2026-07-27-143022/)
-   ↓
-9. Server runs your code in that folder
-   ↓
-10. Server makes a shortcut called "current" pointing to new folder
-    (This is why it's fast - just changing a shortcut, not copying files)
-   ↓
-11. Server runs: scripts/after-deploy.sh (cleanup)
-   ↓
-12. Server checks: "Is the website working?" (health check)
-   ↓
-13. Server sends Slack message: "Deployment successful!"
-   ↓
-14. DONE! Website is updated
-```
-
-Typical time: 30-60 seconds
-
-## Settings Explained
-
-### Deployment Settings
-
-| Setting | What It Does | Example |
-|---------|-------------|---------|
-| `repository` | Your GitHub repo URL | `git@github.com:username/myapp.git` |
-| `branch` | Which branch to deploy | `main` or `production` |
-| `deploy_to` | Where to upload files | `/var/www/html/myapp` |
-| `keep_releases` | How many old versions to keep | `5` (keeps last 5 versions) |
-
-### GitHub Settings
-
-| Setting | What It Does | Where to Get It |
-|---------|-------------|-----------------|
-| `webhook_secret` | Secret code to verify it's GitHub | Make it up (32+ characters) |
-| `token` | GitHub access token | GitHub Settings > Developer settings > Personal access tokens |
-
-### Notification Settings
-
-| Setting | What It Does | How to Get It |
-|---------|-------------|---------------|
-| `slack_webhook` | Send Slack messages | https://api.slack.com/apps |
-| `email` | Send email alerts | Any email address |
-
-## Before and After Scripts
-
-### Before Uploading (`scripts/before-deploy.sh`)
-
-This runs BEFORE your website gets the new code. Use it to prepare:
-
-```bash
-#!/bin/bash
-set -e
-
-echo "Preparing to deploy..."
-
-# Update the database (if using Laravel)
-php artisan migrate --force
-
-# Clear old cached data
-php artisan cache:clear
-
-# Build new CSS/JavaScript
-npm run build
-
-# Compress images
-php artisan optimize:images
-```
-
-### After Uploading (`scripts/after-deploy.sh`)
-
-This runs AFTER your website has the new code. Use it to clean up:
-
-```bash
-#!/bin/bash
-set -e
-
-echo "Deployment complete, cleaning up..."
-
-# Warm up the cache so site is fast
-php artisan cache:warmup
-
-# Restart background workers
-supervisorctl restart all
-
-# Tell monitoring service it's done
-curl -X POST https://your-website.com/api/deployment-done
-
-# Send success notification
-echo "Deployment finished successfully!"
-```
-
-## Environment File (For Secrets)
-
-Instead of putting secrets in `config.php`, create `.env` file:
-
-```bash
-# .env file (NEVER commit this to GitHub!)
-GITHUB_TOKEN=github_pat_xxxxxxxxxxxxx
-GITHUB_WEBHOOK_SECRET=your-super-secret-key
-SLACK_WEBHOOK=https://hooks.slack.com/services/YOUR/WEBHOOK
-EMAIL_ADDRESS=admin@example.com
-DEPLOY_USER=deploy_user
-DEPLOY_HOST=production.example.com
-DEPLOY_PATH=/var/www/html/app
-```
-
-Then in `config.php`:
-
-```php
-<?php
-return [
-    'deployment' => [
-        'repository' => $_ENV['GITHUB_REPO'] ?? 'git@github.com:user/repo.git',
-        'token' => $_ENV['GITHUB_TOKEN'],
-        // ... rest of config
-    ],
-];
-```
-
-## Quick server setup and website upload (step-by-step)
-
-This section shows the shortest, safest path from a fresh clone to automatic deploys on a Linux server (Ubuntu/Debian example). It covers both automatic webhook-driven deploys and manual CLI deploys.
-
----
-
-### 1) Prepare locally (developer machine)
-1. Clone the repo and install dependencies:
-```bash
-git clone https://github.com/<your-org-or-username>/<your-repo>.git
-cd <your-repo>
-composer install
-```
-
-2. Copy the example config and edit it:
-```bash
-cp config.example.php config.php
-nano config.php
-```
-Key values to set in `config.php`:
-- `deployment.repository` — your repo URL. Prefer SSH for server: `git@github.com:username/your-repo.git`
-- `deployment.branch` — branch to deploy (e.g. `main`)
-- `deployment.deploy_to` — absolute path on the server where releases/current will live (e.g. `/var/www/myapp`)
-- `deployment.keep_releases` — how many old releases to keep (e.g. `5`)
-- `github.webhook_secret` — a long random secret used to verify GitHub webhooks (32+ chars)
-- `github.token` — (optional) PAT if you need API access
-- `health_check.url` — a URL path on your site that returns 200 when healthy (optional)
-
-You can also use environment variables as explained earlier in this README.
-
-3. Make scripts executable:
-```bash
-chmod +x bin/*.php
-chmod +x scripts/*.sh
-```
-
----
-
-### 2) Prepare the server (example steps)
-On your server (Ubuntu/Debian), run:
-
-1. Create a dedicated deploy user (recommended) and install system packages:
-```bash
+# 1. Create a dedicated deploy user
 sudo adduser --disabled-password --gecos "Deploy User" deploy
+
+# 2. Install required packages (Debian/Ubuntu)
 sudo apt update
-sudo apt install -y git php-cli php-curl unzip curl
-# Install composer (if not present)
+sudo apt install -y git php-cli php-curl php-zip unzip curl
+
+# 3. Install composer (if not present)
 php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
 php composer-setup.php --install-dir=/usr/local/bin --filename=composer
 php -r "unlink('composer-setup.php');"
-```
 
-2. Create the deployment path and give ownership to the deploy user:
-```bash
-sudo mkdir -p /var/www/myapp
-sudo chown -R deploy:deploy /var/www/myapp
-```
+# 4. Clone this repo (on server)
+cd /home/deploy
+git clone https://github.com/<your-org-or-username>/<your-repo>.git auto-deploy
+cd auto-deploy
 
-3. Add an SSH key for the `deploy` user so the server can clone from GitHub:
-- On server, as the deploy user:
-```bash
-sudo -iu deploy
-ssh-keygen -t ed25519 -C "deploy@myserver" -f ~/.ssh/id_ed25519 -N ""
-cat ~/.ssh/id_ed25519.pub
-# Copy the pub key to clipboard
-```
-- In GitHub repository settings → Deploy keys → Add deploy key (paste the public key). Give write access if you need pushes from server (usually read-only is fine).
-
-4. Test Git access from server:
-```bash
-# as deploy user
-ssh -T git@github.com
-git clone --depth=1 git@github.com:username/your-repo.git /tmp/test-clone
-```
-If clone works, remove the test clone:
-```bash
-rm -rf /tmp/test-clone
-```
-
----
-
-### 3) Deploy the app code & install dependencies on the server
-1. On the server as the deploy user, clone the repo into a safe location (or copy your repo files there):
-```bash
-cd /var/www
-git clone git@github.com:username/your-repo.git myapp
-cd myapp
+# 5. Install PHP libraries
 composer install --no-dev --optimize-autoloader
+
+# 6. Copy config and edit
+cp config.example.php config.php
+nano config.php   # edit repository, deploy_to, webhook secret, etc.
+
+# 7. Create public dir and webhook file
+mkdir -p public
+# paste the webhook.php contents from this README into public/webhook.php
+
+# 8. Create bin and scripts
+mkdir -p bin scripts src/AutoDeployPHP releases deploy/logs
+# paste the bin/*.php contents and src/AutoDeployPHP/*.php files from this README
+
+# 9. Make scripts executable
+chmod +x bin/*.php
+chmod +x scripts/*.sh
+
+# 10. Set permissions
+sudo chown -R deploy:deploy /home/deploy/auto-deploy
 ```
 
-2. Create `config.php` on the server (copy from `config.example.php`) and set:
-- `deployment.deploy_to` to `/var/www/myapp` (or `/var/www/myapp/deploy` depending on your preference)
-- `github.webhook_secret` to same secret you will use in GitHub webhook
-- Any environment specific values (database, notifications, health_check.url)
+Files to create
+- Place `public/webhook.php` under the `public/` directory.
+- Place PHP classes under `src/AutoDeployPHP/`.
+- Place CLI scripts under `bin/`.
+- Place hooks under `scripts/`.
 
-3. Ensure the directories used by the Deployer are writable:
-```bash
-# if deploy runs as 'deploy'
-sudo chown -R deploy:deploy /var/www/myapp
-sudo chmod -R 755 /var/www/myapp
+public/webhook.php
+```php
+<?php
+// Minimal webhook endpoint. Expects config.php in project root.
+require_once __DIR__ . '/../vendor/autoload.php';
+
+use AutoDeployPHP\WebhookHandler;
+
+$config = require __DIR__ . '/../config.php';
+$handler = new WebhookHandler($config);
+header('Content-Type: application/json');
+echo $handler->handle();
 ```
 
----
+src/AutoDeployPHP/Config.php
+```php
+<?php
+namespace AutoDeployPHP;
 
-### 4) Configure the webhook endpoint (auto-deploy)
-You have two options: serve `public/webhook.php` from your web server or put it behind an HTTPS endpoint via a small reverse proxy.
+class Config
+{
+    private array $config;
 
-1. Place `public/` under your webroot:
-- If your site root is `/var/www/myapp/public`, move or symlink the `public` folder there.
-- Example with Nginx: point a small server block at `/var/www/myapp/public` and ensure PHP is enabled (php-fpm).
-
-2. Example minimal Nginx server block:
-```
-server {
-    listen 443 ssl;
-    server_name deploy.example.com;
-
-    root /var/www/myapp/public;
-    index index.php;
-
-    location / {
-        try_files $uri $uri/ =404;
+    public function __construct(array $config)
+    {
+        $this->config = $config;
     }
 
-    location ~ \.php$ {
-        include fastcgi_params;
-        fastcgi_pass unix:/run/php/php8.1-fpm.sock; # adjust for your PHP version
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+    public static function load(string $path): self
+    {
+        if (!file_exists($path)) {
+            throw new \RuntimeException("Config file not found: $path");
+        }
+        $data = require $path;
+        if (!is_array($data)) {
+            throw new \RuntimeException("Config file must return an array.");
+        }
+        return new self($data);
+    }
+
+    public function get(string $key, $default = null)
+    {
+        $parts = explode('.', $key);
+        $value = $this->config;
+        foreach ($parts as $p) {
+            if (!is_array($value) || !array_key_exists($p, $value)) {
+                return $default;
+            }
+            $value = $value[$p];
+        }
+        return $value;
+    }
+
+    public function all(): array
+    {
+        return $this->config;
     }
 }
 ```
-Reload Nginx after enabling.
 
-3. Configure GitHub webhook:
-- Go to your repository → Settings → Webhooks → Add webhook
-  - Payload URL: `https://deploy.example.com/webhook.php` (or your site + path)
-  - Content type: `application/json`
-  - Secret: the same `github.webhook_secret` in `config.php`
-  - Which events: choose `push` and `pull_request` (or just `push`)
-  - Save.
+src/AutoDeployPHP/Deployer.php
+```php
+<?php
+namespace AutoDeployPHP;
 
-4. Test webhook locally (simulate GitHub):
-Create a JSON payload file `payload.json` (can be a real push payload or minimal one with `"ref":"refs/heads/main"`). Compute HMAC and POST:
-```bash
-SECRET="your_webhook_secret_here"
-PAYLOAD=$(cat payload.json)
-SIG="sha256=$(printf '%s' "$PAYLOAD" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')"
+class Deployer
+{
+    private Config $config;
+    private string $deployPath;
+    private string $repository;
+    private string $branch;
 
-curl -v -H "Content-Type: application/json" \
-     -H "X-Hub-Signature-256: $SIG" \
-     -d "$PAYLOAD" \
-     https://deploy.example.com/webhook.php
+    public function __construct(Config $config)
+    {
+        $this->config = $config;
+        $this->deployPath = rtrim($this->config->get('deployment.deploy_to', __DIR__ . '/../../deploy'), '/');
+        $this->repository = $this->config->get('deployment.repository');
+        $this->branch = $this->config->get('deployment.branch', 'main');
+    }
+
+    private function timestamp(): string
+    {
+        return date('Y-m-d-His');
+    }
+
+    private function runCommand(string $cmd, bool $failOnError = true): string
+    {
+        $output = [];
+        $code = 0;
+        exec($cmd . ' 2>&1', $output, $code);
+        $text = implode("\n", $output);
+        if ($failOnError && $code !== 0) {
+            throw new \RuntimeException("Command failed: $cmd\nOutput: $text");
+        }
+        return $text;
+    }
+
+    public function deploy(): array
+    {
+        if (!$this->repository) {
+            throw new \RuntimeException('No repository configured.');
+        }
+        $releases = $this->deployPath . '/releases';
+        $current = $this->deployPath . '/current';
+        @mkdir($releases, 0755, true);
+        @mkdir(dirname($current), 0755, true);
+
+        $releaseDir = $releases . '/' . $this->timestamp();
+        $this->runCommand(sprintf('git clone --depth=1 --branch %s %s %s', escapeshellarg($this->branch), escapeshellarg($this->repository), escapeshellarg($releaseDir)));
+        // Run pre-deploy hooks
+        $preHooks = $this->config->get('pre_deploy_hooks', []);
+        foreach ($preHooks as $hook) {
+            $hookPath = $releaseDir . '/' . ltrim($hook, '/');
+            if (file_exists($hookPath) && is_executable($hookPath)) {
+                $this->runCommand(escapeshellcmd($hookPath));
+            }
+        }
+        // Symlink swap (atomic on most Unixes)
+        $tmpLink = $this->deployPath . '/current_tmp';
+        @unlink($tmpLink);
+        symlink($releaseDir, $tmpLink);
+        // Rename atomically
+        if (file_exists($current)) {
+            rename($current, $this->deployPath . '/previous');
+            unlink($current);
+        }
+        rename($tmpLink, $current);
+
+        // Run post-deploy hooks from current
+        $postHooks = $this->config->get('post_deploy_hooks', []);
+        foreach ($postHooks as $hook) {
+            $hookPath = $current . '/' . ltrim($hook, '/');
+            if (file_exists($hookPath) && is_executable($hookPath)) {
+                $this->runCommand(escapeshellcmd($hookPath));
+            }
+        }
+
+        // Health check
+        $hc = $this->config->get('health_check', []);
+        $healthy = true;
+        if (!empty($hc['enabled']) && !empty($hc['url'])) {
+            $expected = $hc['expected_status'] ?? 200;
+            $cmd = sprintf('curl -s -o /dev/null -w "%{http_code}" --max-time %d %s', (int)($hc['timeout'] ?? 10), escapeshellarg($hc['url']));
+            $codeStr = trim($this->runCommand($cmd, false));
+            $healthy = ((int)$codeStr === (int)$expected);
+        }
+
+        // Keep a history file
+        $logDir = $this->deployPath . '/deploy_logs';
+        @mkdir($logDir, 0755, true);
+        file_put_contents($logDir . '/last_deploy.json', json_encode([
+            'release' => basename($releaseDir),
+            'time' => time(),
+            'healthy' => $healthy
+        ], JSON_PRETTY_PRINT));
+
+        return ['release' => basename($releaseDir), 'healthy' => $healthy, 'path' => $current];
+    }
+
+    public function rollback(): array
+    {
+        $releases = $this->deployPath . '/releases';
+        $current = $this->deployPath . '/current';
+        if (!is_dir($releases)) {
+            throw new \RuntimeException('No releases to roll back to.');
+        }
+        $dirs = array_values(array_filter(scandir($releases), fn($d) => $d !== '.' && $d !== '..'));
+        rsort($dirs);
+        if (count($dirs) < 2) {
+            throw new \RuntimeException('Not enough releases to roll back.');
+        }
+        $previous = $releases . '/' . $dirs[1]; // the one before the current newest
+        // swap
+        if (is_link($current) || file_exists($current)) {
+            @unlink($current);
+        }
+        symlink($previous, $current);
+        return ['rolled_back_to' => basename($previous), 'path' => $current];
+    }
+}
 ```
-If it returns JSON with `success:true` (or starts the deploy), webhook is working.
 
----
+src/AutoDeployPHP/WebhookHandler.php
+```php
+<?php
+namespace AutoDeployPHP;
 
-### 5) Manual deployment (CLI)
-If you prefer to trigger deploys manually or from CI, use the included bin script:
+class WebhookHandler
+{
+    private Config $config;
+    private Deployer $deployer;
 
-1. Run a deploy (from the repository root or from anywhere where the code is present and config.php points to the proper deploy path):
-```bash
-# as deploy user (or the user who owns the deployment directories)
-php bin/deploy.php --branch main
+    public function __construct(array $configArray)
+    {
+        $this->config = new Config($configArray);
+        $this->deployer = new Deployer($this->config);
+    }
+
+    private function verifySignature(array $headers, string $payload): bool
+    {
+        $secret = $this->config->get('github.webhook_secret');
+        if (empty($secret)) {
+            return true; // no secret set — not recommended
+        }
+        $sig = $headers['HTTP_X_HUB_SIGNATURE_256'] ?? $headers['X-Hub-Signature-256'] ?? '';
+        if (!$sig) {
+            return false;
+        }
+        if (strpos($sig, 'sha256=') === 0) {
+            $hash = substr($sig, 7);
+            $calc = hash_hmac('sha256', $payload, $secret);
+            return hash_equals($calc, $hash);
+        }
+        return false;
+    }
+
+    public function handle(): string
+    {
+        $payload = file_get_contents('php://input') ?: '';
+        $headers = $_SERVER;
+        if (!$this->verifySignature($headers, $payload)) {
+            http_response_code(401);
+            return json_encode(['success' => false, 'message' => 'Invalid signature']);
+        }
+
+        $data = json_decode($payload, true);
+        // Quick check: only react to push (or allow all if not specified)
+        $events = $this->config->get('github.events', ['push', 'pull_request']);
+        $eventHeader = $_SERVER['HTTP_X_GITHUB_EVENT'] ?? '';
+        if (!in_array($eventHeader, $events) && !empty($events)) {
+            return json_encode(['success' => false, 'message' => 'Event ignored', 'event' => $eventHeader]);
+        }
+
+        try {
+            $result = $this->deployer->deploy();
+            return json_encode(['success' => true, 'result' => $result]);
+        } catch (\Throwable $e) {
+            http_response_code(500);
+            return json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
+    }
+}
 ```
-This will:
-- create a timestamped directory in `deployment.deploy_to`/releases
-- shallow clone/fetch the configured repo branch into that directory
-- run `scripts/before-deploy.sh` (if present)
-- update `current` symlink atomically
-- run `scripts/after-deploy.sh`
-- run the health check configured in `config.php`
 
-2. Check status/logs:
-```bash
-php bin/status.php
-# or view the log files in deploy_logs under your deploy path
-ls -l /var/www/myapp/deploy_logs
-tail -n 200 /var/www/myapp/deploy_logs/deploy-$(date +%F).log
+bin/deploy.php
+```php
+#!/usr/bin/env php
+<?php
+require __DIR__ . '/../vendor/autoload.php';
+
+use AutoDeployPHP\Config;
+use AutoDeployPHP\Deployer;
+
+$config = Config::load(__DIR__ . '/../config.php');
+$deployer = new Deployer($config);
+
+try {
+    $res = $deployer->deploy();
+    echo "Deployed release: " . $res['release'] . PHP_EOL;
+    echo "Healthy: " . ($res['healthy'] ? 'yes' : 'no') . PHP_EOL;
+    exit(0);
+} catch (Throwable $e) {
+    echo "Deploy failed: " . $e->getMessage() . PHP_EOL;
+    exit(1);
+}
 ```
 
-3. Roll back:
-```bash
-php bin/rollback.php
+bin/status.php
+```php
+#!/usr/bin/env php
+<?php
+require __DIR__ . '/../vendor/autoload.php';
+$config = require __DIR__ . '/../config.php';
+$deployPath = rtrim($config['deployment']['deploy_to'] ?? __DIR__ . '/../deploy', '/');
+$log = $deployPath . '/deploy_logs/last_deploy.json';
+if (!file_exists($log)) {
+    echo "No deploy performed yet.\n";
+    exit(0);
+}
+echo file_get_contents($log) . PHP_EOL;
 ```
-This switches `current` to the previous release (atomic symlink swap).
 
----
+bin/rollback.php
+```php
+#!/usr/bin/env php
+<?php
+require __DIR__ . '/../vendor/autoload.php';
+use AutoDeployPHP\Config;
+use AutoDeployPHP\Deployer;
 
-### 6) Health checks and notifications
-- Configure `health_check.url` in `config.php` to point to a small route on your app that returns 200 when healthy, e.g. `/health`.
-- The Deployer runs that URL after a deploy and will log and return `healthy:false` if it fails.
-- If you configured Slack / email in `config.php`, notifications are sent (if Notification code is present and enabled).
+$config = Config::load(__DIR__ . '/../config.php');
+$deployer = new Deployer($config);
+try {
+    $res = $deployer->rollback();
+    echo "Rolled back to: " . $res['rolled_back_to'] . PHP_EOL;
+    exit(0);
+} catch (Throwable $e) {
+    echo "Rollback failed: " . $e->getMessage() . PHP_EOL;
+    exit(1);
+}
+```
 
----
+scripts/before-deploy.sh
+```bash
+#!/bin/bash
+set -e
+echo "Running before-deploy hook"
+# Add custom commands here, e.g. build assets
+# Example:
+# cd /var/www/myapp/current
+# npm install && npm run build
+```
 
-### 7) Security & production hardening
-- Always use HTTPS for webhook endpoints. Use a valid TLS certificate (Let's Encrypt).
-- Keep `github.webhook_secret` secret — do not commit it into Git.
-- Prefer adding the server's SSH public key as a GitHub Deploy Key (read-only) instead of putting a PAT into `config.php`.
-- Restrict inbound traffic to only GitHub webhook IP ranges (or at least rate-limit / firewall).
-- Run deployments as a dedicated non-root user and ensure file permissions are correct.
-- Validate hooks (scripts) and keep them minimal and idempotent. Hooks run as the deploy user.
+scripts/after-deploy.sh
+```bash
+#!/bin/bash
+set -e
+echo "Running after-deploy hook"
+# Add commands to restart services, warm caches, etc.
+# Example:
+# supervisorctl restart myworkers || true
+```
 
----
+Configuration notes
+- Edit `config.php` (copy from `config.example.php`) and set:
+  - deployment.repository — the repo the server will clone (use SSH e.g. git@github.com:org/repo.git)
+  - deployment.deploy_to — full path on the server where releases and current live (e.g. /var/www/myapp)
+  - github.webhook_secret — a long random string used to verify webhooks
 
-### 8) Troubleshooting
-- Webhook delivery fails on GitHub: Check Recent Deliveries in the webhook settings; view response body and HTTP status.
-- Signature mismatch: ensure the webhook secret in GitHub exactly matches `github.webhook_secret` in `config.php`. HMAC header is `X-Hub-Signature-256: sha256=<hex>`.
-- Git clone fails: confirm the server's SSH key is added to GitHub and `git` works from the deploy user.
-- Permissions errors: check ownership/permissions of `deployment.deploy_to` and `releases` directories.
-- Long-running hooks/timeouts: the Deployer uses timeouts for commands — see `Deployer::executeCommand`. If a command times out, check the hook scripts and increase timeout in config if needed.
-
----
-
-### 9) Minimal example of config.php (server)
+Example minimal `config.php` (replace values)
 ```php
 <?php
 return [
     'deployment' => [
-        'repository' => 'git@github.com:username/your-repo.git',
+        'repository' => 'git@github.com:username/your-website.git',
         'branch' => 'main',
-        'deploy_to' => '/var/www/myapp',
+        'deploy_to' => '/var/www/mywebsite',
         'keep_releases' => 5,
+        'timeout' => 300,
     ],
     'github' => [
-        'webhook_secret' => 'change-this-to-a-long-random-string',
-        'token' => null,
-    ],
-    'notifications' => [
-        'slack_webhook' => null,
-        'email' => 'admin@example.com',
+        'webhook_secret' => 'change-to-a-long-random-string',
+        'verify_signature' => true,
+        'events' => ['push']
     ],
     'pre_deploy_hooks' => [
-        'scripts/before-deploy.sh',
+        'scripts/before-deploy.sh'
     ],
     'post_deploy_hooks' => [
-        'scripts/after-deploy.sh',
+        'scripts/after-deploy.sh'
     ],
     'health_check' => [
         'enabled' => true,
-        'url' => 'https://your-site.com/health',
+        'url' => 'https://your-domain.com/health',
         'expected_status' => 200,
-        'timeout' => 10,
-        'retries' => 3,
-        'retry_delay' => 2,
-    ],
-    'security' => [
-        'verify_ssl' => true,
-        'restrict_to_github_ips' => true,
+        'timeout' => 10
     ],
 ];
 ```
 
+Set up GitHub access for the server
+1. On the server, become deploy user:
+   sudo su - deploy
+2. Generate SSH key:
+   ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
+3. Show the public key:
+   cat ~/.ssh/id_ed25519.pub
+4. In GitHub repo → Settings → Deploy keys → Add deploy key. Paste the public key. Give read access.
+5. Test:
+   ssh -T git@github.com
+   git clone --depth=1 git@github.com:username/your-website.git /tmp/test-clone
 
+Create GitHub webhook
+1. In your repo on github.com → Settings → Webhooks → Add webhook.
+2. Payload URL: https://your-server-domain/webhook.php
+3. Content type: application/json
+4. Secret: the same as github.webhook_secret in config.php
+5. Which events: push (and pull_request if you want)
+6. Save.
+
+Testing webhook locally (optional)
+- On the server you can simulate a push:
+```bash
+PAYLOAD='{"ref":"refs/heads/main"}'
+SECRET="your_secret_here"
+SIG="sha256=$(printf '%s' "$PAYLOAD" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')"
+curl -s -H "Content-Type: application/json" -H "X-Hub-Signature-256: $SIG" -H "X-Github-Event: push" -d "$PAYLOAD" https://your-server-domain/webhook.php
+```
+
+Manual deploy and rollback
+- Manual deploy:
+  php bin/deploy.php --branch main
+- Check last deploy:
+  php bin/status.php
+- Rollback to the previous release:
+  php bin/rollback.php
+
+Permissions & services
+- All files and the deploy path should be owned by the dedicated deploy user:
+  sudo chown -R deploy:deploy /var/www/mywebsite
+- Ensure bin/*.php and scripts/*.sh are executable.
+
+Troubleshooting
+- "git clone fails": check the server's SSH key is added to GitHub deploy keys.
+- "Signature invalid": ensure the webhook secret matches exactly and your webhook sends X-Hub-Signature-256.
+- "Permission denied when creating releases/current": fix file ownership and permissions.
+- Check logs in DEPLOY_PATH/deploy_logs/last_deploy.json for recent results.
+
+Security & production advice
+- Use HTTPS for your webhook endpoint.
+- Do not put secrets in your repo. Use environment variables or server config and keep config.php out of Git.
+- Prefer Deploy Keys (SSH) instead of adding a long-lived PAT into config.php.
+- Restrict the webhook endpoint by IP or use a firewall.
+
+If you want, I can:
+- create these files in the repository for you (I will need confirmation and repo details),
+- or produce a small GitHub Actions workflow that runs tests and linting before deploy.
