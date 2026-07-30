@@ -4,9 +4,9 @@ namespace AutoDeployPHP;
 class Deployer
 {
     private Config $config;
-    private string $deployPath;
-    private string $repository;
-    private string $branch;
+    private string $deployPath = '';
+    private string $repository = '';
+    private string $branch = 'main';
 
     public function __construct(Config $config)
     {
