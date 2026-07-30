@@ -1,0 +1,14 @@
+[Unit]
+Description=Auto Deploy PHP - Simple webhook server (built-in PHP)
+After=network.target
+
+[Service]
+User=deploy
+Group=deploy
+WorkingDirectory=/var/www/myapp/public
+# Run PHP's built-in server on localhost:8080 - suitable for small deployments or testing behind a reverse proxy
+ExecStart=/usr/bin/php -S 127.0.0.1:8080 -t /var/www/myapp/public
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
