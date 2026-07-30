@@ -6,12 +6,18 @@ class WebhookHandler
     private Config $config;
     private Deployer $deployer;
 
+    /**
+     * @param array<string,mixed> $configArray
+     */
     public function __construct(array $configArray)
     {
         $this->config = new Config($configArray);
         $this->deployer = new Deployer($this->config);
     }
 
+    /**
+     * @param array<string,string> $headers
+     */
     private function verifySignature(array $headers, string $payload): bool
     {
         $secret = $this->config->get('github.webhook_secret');
