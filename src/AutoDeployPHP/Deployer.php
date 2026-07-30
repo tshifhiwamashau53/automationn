@@ -11,9 +11,10 @@ class Deployer
     public function __construct(Config $config)
     {
         $this->config = $config;
-        $this->deployPath = rtrim($this->config->get('deployment.deploy_to', __DIR__ . '/../../deploy'), '/');
-        $this->repository = $this->config->get('deployment.repository');
-        $this->branch = $this->config->get('deployment.branch', 'main');
+        // Ensure we always have strings for the typed properties
+        $this->deployPath = rtrim((string)$this->config->get('deployment.deploy_to', __DIR__ . '/../../deploy'), '/');
+        $this->repository = (string)$this->config->get('deployment.repository', '');
+        $this->branch = (string)$this->config->get('deployment.branch', 'main');
     }
 
     private function timestamp(): string
@@ -33,6 +34,9 @@ class Deployer
         return $text;
     }
 
+    /**
+     * @return array{release:string,healthy:bool,path:string}
+     */
     public function deploy(): array
     {
         if (!$this->repository) {
@@ -44,11 +48,16 @@ class Deployer
         @mkdir(dirname($current), 0755, true);
 
         $releaseDir = $releases . '/' . $this->timestamp();
-        $this->runCommand(sprintf('git clone --depth=1 --branch %s %s %s', escapeshellarg($this->branch), escapeshellarg($this->repository), escapeshellarg($releaseDir)));
+        $this->runCommand(sprintf(
+            'git clone --depth=1 --branch %s %s %s',
+            escapeshellarg($this->branch),
+            escapeshellarg($this->repository),
+            escapeshellarg($releaseDir)
+        ));
         // Run pre-deploy hooks
-        $preHooks = $this->config->get('pre_deploy_hooks', []);
+        $preHooks = (array)$this->config->get('pre_deploy_hooks', []);
         foreach ($preHooks as $hook) {
-            $hookPath = $releaseDir . '/' . ltrim($hook, '/');
+            $hookPath = $releaseDir . '/' . ltrim((string)$hook, '/');
             if (file_exists($hookPath) && is_executable($hookPath)) {
                 $this->runCommand(escapeshellcmd($hookPath));
             }
@@ -60,25 +69,28 @@ class Deployer
         // Rename atomically
         if (file_exists($current)) {
             rename($current, $this->deployPath . '/previous');
-            unlink($current);
         }
         rename($tmpLink, $current);
 
         // Run post-deploy hooks from current
-        $postHooks = $this->config->get('post_deploy_hooks', []);
+        $postHooks = (array)$this->config->get('post_deploy_hooks', []);
         foreach ($postHooks as $hook) {
-            $hookPath = $current . '/' . ltrim($hook, '/');
+            $hookPath = $current . '/' . ltrim((string)$hook, '/');
             if (file_exists($hookPath) && is_executable($hookPath)) {
                 $this->runCommand(escapeshellcmd($hookPath));
             }
         }
 
         // Health check
-        $hc = $this->config->get('health_check', []);
+        $hc = (array)$this->config->get('health_check', []);
         $healthy = true;
         if (!empty($hc['enabled']) && !empty($hc['url'])) {
             $expected = $hc['expected_status'] ?? 200;
-            $cmd = sprintf('curl -s -o /dev/null -w "%{http_code}" --max-time %d %s', (int)($hc['timeout'] ?? 10), escapeshellarg($hc['url']));
+            $cmd = sprintf(
+                'curl -s -o /dev/null -w "%%{http_code}" --max-time %d %s',
+                (int)($hc['timeout'] ?? 10),
+                escapeshellarg((string)$hc['url'])
+            );
             $codeStr = trim($this->runCommand($cmd, false));
             $healthy = ((int)$codeStr === (int)$expected);
         }
@@ -95,6 +107,9 @@ class Deployer
         return ['release' => basename($releaseDir), 'healthy' => $healthy, 'path' => $current];
     }
 
+    /**
+     * @return array{rolled_back_to:string,path:string}
+     */
     public function rollback(): array
     {
         $releases = $this->deployPath . '/releases';
@@ -102,7 +117,11 @@ class Deployer
         if (!is_dir($releases)) {
             throw new \RuntimeException('No releases to roll back to.');
         }
-        $dirs = array_values(array_filter(scandir($releases), fn($d) => $d !== '.' && $d !== '..'));
+        $scanned = scandir($releases);
+        if ($scanned === false) {
+            throw new \RuntimeException('Failed to read releases directory.');
+        }
+        $dirs = array_values(array_filter($scanned, fn($d) => $d !== '.' && $d !== '..'));
         rsort($dirs);
         if (count($dirs) < 2) {
             throw new \RuntimeException('Not enough releases to roll back.');
